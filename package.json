@@ -1,0 +1,60 @@
+{
+  "name": "navicat",
+  "version": "1.0.0",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && electron-builder"
+  },
+  "keywords": [],
+  "author": "Gu",
+  "license": "ISC",
+  "description": "MySQL Database Manager",
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.562.0",
+    "monaco-editor": "^0.55.1",
+    "mysql2": "^3.16.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwind-merge": "^3.4.0",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "autoprefixer": "^10.4.23",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.4.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.gu.navicat",
+    "productName": "MySQL Manager",
+    "files": [
+      "dist",
+      "dist-electron"
+    ],
+    "mac": {
+      "target": {
+        "target": "dmg",
+        "arch": ["arm64", "x64"]
+      },
+      "icon": "public/logo.png"
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}
