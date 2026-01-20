@@ -1,6 +1,12 @@
 # Hamster - Free & Powerful MySQL Database Manager
 
 > 🐹 **Hamster** is a modern MySQL database management tool built with Electron. It aims to be a lightweight, free alternative to Navicat.
+> 
+> 🐹 **Hamster** 是一款基于 Electron 构建的现代化 MySQL 数据库管理工具，旨在成为 Navicat 的轻量级、免费平替方案。
+
+<p align="center">
+  <a href="./README.md">English</a> | <a href="./README_zh-CN.md">简体中文</a>
+</p>
 
 ![License](https://img.shields.io/badge/license-ISC-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)
