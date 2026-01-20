@@ -1,5 +1,5 @@
 {
-  "name": "navicat",
+  "name": "hamster",
   "version": "1.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -40,8 +40,8 @@
     "wait-on": "^9.0.3"
   },
   "build": {
-    "appId": "com.gu.navicat",
-    "productName": "MySQL Manager",
+    "appId": "com.gu.hamster",
+    "productName": "Hamster",
     "files": [
       "dist",
       "dist-electron"

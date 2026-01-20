@@ -14,8 +14,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onCloseDatabase }: SidebarProps) {
-  const { savedConnections, addConnection, removeConnection, activeConnectionId, activeConnectionConfigId, setActiveConnection } = useConnectionStore();
+  const { savedConnections, addConnection, removeConnection, updateConnection, activeConnectionId, activeConnectionConfigId, setActiveConnection } = useConnectionStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<ConnectionConfig | undefined>(undefined);
   const [isEditDbModalOpen, setIsEditDbModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{database: string, table: string} | null>(null);
@@ -28,6 +29,13 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
     connectionId: string;
     database: string;
     table: string;
+  } | null>(null);
+
+  const [connectionContextMenu, setConnectionContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    configId: string;
   } | null>(null);
 
   const [dbContextMenu, setDbContextMenu] = useState<{
@@ -46,6 +54,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
         setDbContextMenu(null);
+        setConnectionContextMenu(null);
       }
     };
     document.addEventListener('click', handleClick);
@@ -60,6 +69,41 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
   // Data caches
   const [databases, setDatabases] = useState<Record<string, string[]>>({});
   const [tables, setTables] = useState<Record<string, string[]>>({});
+
+  const handleConnectionContextMenu = (e: React.MouseEvent, configId: string) => {
+    e.preventDefault();
+    setConnectionContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      configId
+    });
+  };
+
+  const handleEditConnection = () => {
+    if (connectionContextMenu) {
+        const config = savedConnections.find(c => c.id === connectionContextMenu.configId);
+        if (config) {
+            setEditingConnection(config);
+            setIsModalOpen(true);
+        }
+        setConnectionContextMenu(null);
+    }
+  };
+
+  const handleDeleteConnection = () => {
+    if (connectionContextMenu) {
+        if (window.confirm("Are you sure you want to delete this connection?")) {
+            removeConnection(connectionContextMenu.configId);
+            // Also close if active?
+            if (activeConnectionConfigId === connectionContextMenu.configId) {
+                // TODO: Disconnect from backend if needed
+                setActiveConnection(null, null);
+            }
+        }
+        setConnectionContextMenu(null);
+    }
+  };
 
   const handleContextMenu = (e: React.MouseEvent, connectionId: string, database: string, table: string) => {
     e.preventDefault();
@@ -321,7 +365,12 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
   };
 
   const handleSaveConnection = (config: ConnectionConfig) => {
-    addConnection(config);
+    if (editingConnection) {
+        updateConnection(editingConnection.id, config);
+    } else {
+        addConnection(config);
+    }
+    setEditingConnection(undefined);
   };
 
   const toggleConnection = async (config: ConnectionConfig) => {
@@ -442,6 +491,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
             <div 
               className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer ${activeConnectionConfigId === conn.id ? 'bg-blue-50' : ''}`}
               onClick={() => toggleConnection(conn)}
+              onContextMenu={(e) => handleConnectionContextMenu(e, conn.id)}
             >
               {expandedConnections.has(conn.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <Server size={14} className="text-gray-500" />
@@ -500,10 +550,34 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
 
      <ConnectionModal 
        isOpen={isModalOpen}
-       onClose={() => setIsModalOpen(false)}
+       onClose={() => { setIsModalOpen(false); setEditingConnection(undefined); }}
        onSave={handleSaveConnection}
+       initialConfig={editingConnection}
      />
      
+     {/* Connection Context Menu */}
+     {connectionContextMenu && (
+        <div 
+          ref={contextMenuRef}
+          className="fixed bg-white shadow-lg border rounded py-1 z-50 min-w-[180px]"
+          style={{ top: connectionContextMenu.y, left: connectionContextMenu.x }}
+        >
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+            onClick={handleEditConnection}
+          >
+            <Edit size={14} /> Edit Connection
+          </button>
+          <div className="border-b my-1"></div>
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2 text-red-600"
+            onClick={handleDeleteConnection}
+          >
+            <Trash2 size={14} /> Delete Connection
+          </button>
+        </div>
+     )}
+
      {/* Context Menu */}
      {contextMenu && (
         <div 

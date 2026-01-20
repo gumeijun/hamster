@@ -20,6 +20,28 @@ export function ConnectionModal({ isOpen, onClose, onSave, initialConfig }: Conn
       database: '',
     }
   );
+
+  // Reset form when initialConfig changes (e.g. switching from Add to Edit)
+  // Or just rely on component re-mounting if key changes. 
+  // Better: use useEffect to sync if isOpen changes to true?
+  // Let's assume parent manages key or unmounts.
+  // Actually, if we reuse the modal component, we need to update state when initialConfig changes.
+  
+  React.useEffect(() => {
+    if (isOpen) {
+        setFormData(initialConfig || {
+            id: crypto.randomUUID(),
+            name: 'New Connection',
+            host: 'localhost',
+            port: 3306,
+            user: 'root',
+            password: '',
+            database: '',
+        });
+        setStatus('');
+    }
+  }, [isOpen, initialConfig]);
+
   const [status, setStatus] = useState<string>('');
 
   if (!isOpen) return null;
