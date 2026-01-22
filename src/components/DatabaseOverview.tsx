@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 interface DatabaseOverviewProps {
   connectionId: string;
   database: string;
+  onSelectTable: (connectionId: string, database: string, table: string) => void;
 }
 
 interface TableStatus {
@@ -26,7 +27,7 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-export function DatabaseOverview({ connectionId, database }: DatabaseOverviewProps) {
+export function DatabaseOverview({ connectionId, database, onSelectTable }: DatabaseOverviewProps) {
   const [tables, setTables] = useState<TableStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +82,11 @@ export function DatabaseOverview({ connectionId, database }: DatabaseOverviewPro
             </thead>
             <tbody>
               {tables.map((table) => (
-                <tr key={table.Name} className="hover:bg-blue-50">
+                <tr 
+                  key={table.Name} 
+                  className="hover:bg-blue-50 cursor-pointer"
+                  onDoubleClick={() => onSelectTable(connectionId, database, table.Name)}
+                >
                   <td className="border p-2 font-medium whitespace-nowrap">{table.Name}</td>
                   <td className="border p-2 text-right whitespace-nowrap">{table.Rows?.toLocaleString() || 0}</td>
                   <td className="border p-2 text-right whitespace-nowrap">{formatBytes(table.Data_length)}</td>

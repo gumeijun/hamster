@@ -223,6 +223,7 @@ function App() {
                      <DatabaseOverview
                         connectionId={tab.data.connectionId!}
                         database={tab.data.database!}
+                        onSelectTable={handleSelectTable}
                      />
                   )}
                 </div>

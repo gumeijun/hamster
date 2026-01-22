@@ -69,6 +69,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
   // Data caches
   const [databases, setDatabases] = useState<Record<string, string[]>>({});
   const [tables, setTables] = useState<Record<string, string[]>>({});
+  const [selectedTable, setSelectedTable] = useState<{configId: string, database: string, table: string} | null>(null);
 
   const handleConnectionContextMenu = (e: React.MouseEvent, configId: string) => {
     e.preventDefault();
@@ -526,17 +527,25 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                       
                       {expandedDatabases.has(dbKey) && tables[dbKey] && (
                         <div className="ml-4 border-l border-gray-300 pl-1 mt-1">
-                           {tables[dbKey].map(table => (
-                             <div 
-                              key={table} 
-                              className="flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4"
-                              onClick={() => onSelectTable(activeConnectionId!, db, table)}
-                              onContextMenu={(e) => handleContextMenu(e, activeConnectionId!, db, table)}
-                            >
-                              <Table size={14} className="text-blue-500" />
-                              <span className="text-sm truncate select-none">{table}</span>
-                            </div>
-                          ))}
+                           {tables[dbKey].map(table => {
+                             const isSelected = selectedTable?.configId === conn.id && selectedTable?.database === db && selectedTable?.table === table;
+                             return (
+                               <div 
+                                key={table} 
+                                className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4 ${isSelected ? 'bg-blue-100 text-blue-700' : ''}`}
+                                onClick={() => setSelectedTable({ configId: conn.id, database: db, table })}
+                                onDoubleClick={() => {
+                                  if (activeConnectionId && activeConnectionConfigId === conn.id) {
+                                    onSelectTable(activeConnectionId, db, table);
+                                  }
+                                }}
+                                onContextMenu={(e) => handleContextMenu(e, activeConnectionId!, db, table)}
+                              >
+                                <Table size={14} className="text-blue-500" />
+                                <span className="text-sm truncate select-none">{table}</span>
+                              </div>
+                             );
+                           })}
                        </div>
                      )}
                    </div>
