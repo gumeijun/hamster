@@ -1,3 +1,17 @@
+/**
+ * Database Operations Module
+ * 
+ * Core database operations layer using mysql2/promise.
+ * Provides all database-related functions:
+ * - Connection management (connect, close)
+ * - Query execution
+ * - Database operations (list, create, alter, export)
+ * - Table operations (list, create, alter, drop, rename, truncate)
+ * - View operations (list, create, drop, get definition)
+ * - Data operations (select, insert, update, delete)
+ * - Schema introspection (columns, indexes, foreign keys)
+ */
+
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
 
@@ -41,6 +55,39 @@ export async function listTables(id: string, database: string) {
   // Or SHOW TABLES FROM `database`
   const { results } = await query(id, `SHOW TABLES FROM \`${database}\``);
   return (results as any[]).map((row: any) => Object.values(row)[0] as string);
+}
+
+export async function listViews(id: string, database: string) {
+  const { results } = await query(id, 
+    `SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ?`, 
+    [database]
+  );
+  return (results as any[]).map((row: any) => row.TABLE_NAME as string);
+}
+
+export async function getViewDefinition(id: string, database: string, viewName: string) {
+  const { results } = await query(id, `SHOW CREATE VIEW \`${database}\`.\`${viewName}\``);
+  const row = (results as any[])[0];
+  return {
+    name: row['View'],
+    definition: row['Create View'],
+    characterSetClient: row['character_set_client'],
+    collationConnection: row['collation_connection']
+  };
+}
+
+export async function dropView(id: string, database: string, viewName: string) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  await connection.query(`DROP VIEW \`${database}\`.\`${viewName}\``);
+  return true;
+}
+
+export async function createView(id: string, database: string, viewName: string, selectStatement: string) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  await connection.query(`CREATE VIEW \`${database}\`.\`${viewName}\` AS ${selectStatement}`);
+  return true;
 }
 
 export async function getTableExtendedInfo(id: string, database: string, table: string) {
@@ -289,6 +336,13 @@ export async function getCollations(id: string) {
   return results;
 }
 
+export async function createDatabase(id: string, database: string, charset: string, collation: string) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  await connection.query(`CREATE DATABASE \`${database}\` CHARACTER SET ${charset} COLLATE ${collation}`);
+  return true;
+}
+
 export async function alterDatabase(id: string, database: string, charset: string, collation: string) {
   const connection = connections[id];
   if (!connection) throw new Error('Connection not found');
@@ -414,7 +468,19 @@ export async function saveTableStructure(
        def += ' DEFAULT NULL';
     }
 
-    if (col.Extra) def += ` ${col.Extra}`;
+    // Only add valid Extra values (filter out MySQL internal identifiers like DEFAULT_GENERATED)
+    if (col.Extra) {
+      const extra = col.Extra.toLowerCase();
+      // Handle auto_increment
+      if (extra.includes('auto_increment')) {
+        def += ' AUTO_INCREMENT';
+      }
+      // Handle on update current_timestamp
+      if (extra.includes('on update current_timestamp')) {
+        def += ' ON UPDATE CURRENT_TIMESTAMP';
+      }
+      // Skip DEFAULT_GENERATED, VIRTUAL GENERATED, STORED GENERATED (handled separately if needed)
+    }
     if (col.Comment) def += ` COMMENT '${col.Comment}'`;
     
     return def;
@@ -447,6 +513,12 @@ export async function saveTableStructure(
       }
   };
 
+  const buildForeignKeyDef = (fk: any) => {
+      const updateRule = fk.UPDATE_RULE || 'RESTRICT';
+      const deleteRule = fk.DELETE_RULE || 'RESTRICT';
+      return `CONSTRAINT \`${fk.CONSTRAINT_NAME}\` FOREIGN KEY (\`${fk.COLUMN_NAME}\`) REFERENCES \`${fk.REFERENCED_TABLE_NAME}\` (\`${fk.REFERENCED_COLUMN_NAME}\`) ON UPDATE ${updateRule} ON DELETE ${deleteRule}`;
+  };
+
   if (isNew) {
     let sql = `CREATE TABLE \`${database}\`.\`${newTableName}\` (\n`;
     const lines: string[] = [];
@@ -460,6 +532,13 @@ export async function saveTableStructure(
     const idxGroups = groupIndexes(indexes);
     for (const [keyName, parts] of Object.entries(idxGroups)) {
         lines.push('  ' + buildIndexDef(keyName, parts));
+    }
+
+    // Foreign Keys
+    for (const fk of foreignKeys) {
+      if (!fk.isDeleted && fk.REFERENCED_TABLE_NAME && fk.REFERENCED_COLUMN_NAME) {
+        lines.push('  ' + buildForeignKeyDef(fk));
+      }
     }
 
     sql += lines.join(',\n');
@@ -485,6 +564,18 @@ export async function saveTableStructure(
      
      const alters: string[] = [];
     
+    // Helper to check if column definition changed
+    const columnChanged = (col: any, current: any) => {
+      // Compare key properties
+      const nameChanged = col.Field !== current.Field;
+      const typeChanged = col.Type?.toLowerCase() !== current.Type?.toLowerCase();
+      const nullChanged = col.Null !== current.Null;
+      const defaultChanged = (col.Default ?? '') !== (current.Default ?? '');
+      const commentChanged = (col.Comment ?? '') !== (current.Comment ?? '');
+      
+      return nameChanged || typeChanged || nullChanged || defaultChanged || commentChanged;
+    };
+
     // Columns
     const processedCurrentCols = new Set<string>();
     
@@ -498,25 +589,15 @@ export async function saveTableStructure(
           
           if (current) {
              processedCurrentCols.add(current.Field);
-             // Check for changes. This is loose comparison.
-             // Ideally we compare every field. 
-             // For MVP, always MODIFY/CHANGE if not new? No, too slow/risky.
-             // Let's compare simplified strings or key props.
              const nameChanged = col.Field !== current.Field;
              
-             // Reconstruct basic current type string to compare? Hard.
-             // Let's just assume if it's in the list and not new, we verify if "Dirty".
-             // But logic is in backend.
-             // Let's blindly MODIFY if name same, CHANGE if name different.
-             // It's safer to ensure definition is correct.
-             
-             if (nameChanged) {
-                 alters.push(`CHANGE COLUMN \`${current.Field}\` ${buildColumnDef(col)}`);
-             } else {
-                 // Always MODIFY to ensure properties match UI? 
-                 // Or try to detect?
-                 // Let's MODIFY. MySQL handles no-op modify gracefully usually (or just fast).
-                 alters.push(`MODIFY COLUMN ${buildColumnDef(col)}`);
+             // Only modify if something actually changed
+             if (columnChanged(col, current)) {
+               if (nameChanged) {
+                   alters.push(`CHANGE COLUMN \`${current.Field}\` ${buildColumnDef(col)}`);
+               } else {
+                   alters.push(`MODIFY COLUMN ${buildColumnDef(col)}`);
+               }
              }
           } else {
              // Fallback: treated as new if not found
@@ -535,43 +616,82 @@ export async function saveTableStructure(
        }
     }
     
-    // Indexes
-    // Simplified: Drop all old indexes (except PRIMARY if not changed? no, just drop/add) and Add new ones.
-    // This is inefficient but robust for structure correctness.
-    // Actually, DROP INDEX then ADD INDEX.
-    
+    // Indexes - only process actual changes
     const oldGroups = groupIndexes(currentIndexes);
     const newGroups = groupIndexes(indexes);
     
-    // Drop removed or changed indexes
+    // Helper to compare index groups
+    const indexesEqual = (oldParts: any[], newParts: any[]) => {
+      if (oldParts.length !== newParts.length) return false;
+      const oldCols = oldParts.map(p => p.Column_name).sort().join(',');
+      const newCols = newParts.map(p => p.Column_name).sort().join(',');
+      return oldCols === newCols;
+    };
+    
+    // Drop removed indexes (exists in old but not in new)
     for (const key of Object.keys(oldGroups)) {
         if (!newGroups[key]) {
-            if (key === 'PRIMARY') alters.push(`DROP PRIMARY KEY`);
-            else alters.push(`DROP INDEX \`${key}\``);
-        } else {
-            // Exists in both. Compare?
-            // For MVP, Drop and Re-add is safest to ensure definition matches.
-            // But dropping PRIMARY KEY is annoying if auto_increment exists.
-            // MySQL Error: Incorrect table definition; there can be only one auto column and it must be defined as a key.
-            // If we drop PK, we must ensure AI is removed or handled? 
-            // Actually `MODIFY COLUMN` happens before `DROP KEY`? 
-            // Order of operations in ALTER TABLE matters.
-            
-            // To be safe:
-            // 1. If PK changed, we might have issues with AI.
-            // Let's skip diffing PK for now if it looks same?
-            // Or just hope MySQL accepts `DROP PRIMARY KEY, ADD PRIMARY KEY (...)` in one statement.
-            
             if (key === 'PRIMARY') alters.push(`DROP PRIMARY KEY`);
             else alters.push(`DROP INDEX \`${key}\``);
         }
     }
     
-    // Add new indexes
-    for (const [key, parts] of Object.entries(newGroups)) {
-         // If we dropped it above, we re-add it here.
-         // If it's brand new, we add it.
-         alters.push(`ADD ${buildIndexDef(key, parts)}`);
+    // Add new indexes (exists in new but not in old)
+    for (const key of Object.keys(newGroups)) {
+        if (!oldGroups[key]) {
+            alters.push(`ADD ${buildIndexDef(key, newGroups[key])}`);
+        }
+    }
+    
+    // Modified indexes (exists in both but columns changed)
+    for (const key of Object.keys(newGroups)) {
+        if (oldGroups[key] && !indexesEqual(oldGroups[key], newGroups[key])) {
+            // Need to drop and re-add
+            if (key === 'PRIMARY') {
+                alters.push(`DROP PRIMARY KEY`);
+            } else {
+                alters.push(`DROP INDEX \`${key}\``);
+            }
+            alters.push(`ADD ${buildIndexDef(key, newGroups[key])}`);
+        }
+    }
+    
+    // Foreign Keys
+    // Get current foreign keys
+    const currentFks = await getForeignKeysWithRules(id, database, oldTableName) as any[];
+    const currentFkNames = new Set(currentFks.map((f: any) => f.CONSTRAINT_NAME));
+    
+    // Drop deleted foreign keys
+    for (const fk of foreignKeys) {
+      if (fk.isDeleted && fk.originalName && currentFkNames.has(fk.originalName)) {
+        alters.push(`DROP FOREIGN KEY \`${fk.originalName}\``);
+      }
+    }
+    
+    // Add new foreign keys
+    for (const fk of foreignKeys) {
+      if (fk.isNew && !fk.isDeleted && fk.REFERENCED_TABLE_NAME && fk.REFERENCED_COLUMN_NAME) {
+        alters.push(`ADD ${buildForeignKeyDef(fk)}`);
+      }
+    }
+    
+    // Modified foreign keys (drop old, add new)
+    for (const fk of foreignKeys) {
+      if (!fk.isNew && !fk.isDeleted && fk.originalName && currentFkNames.has(fk.originalName)) {
+        const orig = currentFks.find((o: any) => o.CONSTRAINT_NAME === fk.originalName);
+        if (orig) {
+          const changed = fk.COLUMN_NAME !== orig.COLUMN_NAME ||
+                         fk.REFERENCED_TABLE_NAME !== orig.REFERENCED_TABLE_NAME ||
+                         fk.REFERENCED_COLUMN_NAME !== orig.REFERENCED_COLUMN_NAME ||
+                         fk.UPDATE_RULE !== orig.UPDATE_RULE ||
+                         fk.DELETE_RULE !== orig.DELETE_RULE ||
+                         fk.CONSTRAINT_NAME !== orig.CONSTRAINT_NAME;
+          if (changed) {
+            alters.push(`DROP FOREIGN KEY \`${fk.originalName}\``);
+            alters.push(`ADD ${buildForeignKeyDef(fk)}`);
+          }
+        }
+      }
     }
     
     // Options
@@ -606,4 +726,54 @@ export async function close(id: string) {
 
 export function getConnection(id: string) {
   return connections[id];
+}
+
+// Get columns for a specific table (used for foreign key column selection)
+export async function getTableColumns(id: string, database: string, table: string) {
+  const { results } = await query(id, `SHOW COLUMNS FROM \`${database}\`.\`${table}\``);
+  return results;
+}
+
+// Get triggers for a specific table
+export async function getTriggers(id: string, database: string, table: string) {
+  const { results } = await query(id, `SHOW TRIGGERS FROM \`${database}\` WHERE \`Table\` = ?`, [table]);
+  return results;
+}
+
+// Create a new trigger
+export async function createTrigger(id: string, database: string, triggerSql: string) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  await connection.query(`USE \`${database}\``);
+  await connection.query(triggerSql);
+  return true;
+}
+
+// Drop a trigger
+export async function dropTrigger(id: string, database: string, triggerName: string) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  await connection.query(`DROP TRIGGER \`${database}\`.\`${triggerName}\``);
+  return true;
+}
+
+// Get foreign key constraints with ON UPDATE/DELETE rules
+export async function getForeignKeysWithRules(id: string, database: string, table: string) {
+  const { results } = await query(id, `
+    SELECT 
+      kcu.CONSTRAINT_NAME,
+      kcu.COLUMN_NAME,
+      kcu.REFERENCED_TABLE_NAME,
+      kcu.REFERENCED_COLUMN_NAME,
+      rc.UPDATE_RULE,
+      rc.DELETE_RULE
+    FROM information_schema.KEY_COLUMN_USAGE kcu
+    JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+      ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+      AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+    WHERE kcu.TABLE_SCHEMA = ? 
+      AND kcu.TABLE_NAME = ? 
+      AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+  `, [database, table]);
+  return results;
 }

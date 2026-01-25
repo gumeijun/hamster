@@ -1,3 +1,14 @@
+/**
+ * Electron Main Process
+ * 
+ * The main entry point for the Electron application.
+ * Responsibilities:
+ * - Create and manage the browser window
+ * - Handle IPC communication between renderer and main processes
+ * - Register all database operation handlers (connect, query, CRUD operations)
+ * - Manage file dialogs for import/export operations
+ */
+
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -188,6 +199,15 @@ ipcMain.handle('db:get-collations', async (_, id) => {
   }
 });
 
+ipcMain.handle('db:create-database', async (_, id, database, charset, collation) => {
+  try {
+    await db.createDatabase(id, database, charset, collation);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('db:alter-database', async (_, id, database, charset, collation) => {
   try {
     await db.alterDatabase(id, database, charset, collation);
@@ -276,6 +296,91 @@ ipcMain.handle('db:close', async (_, id) => {
   try {
     await db.close(id);
     return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Views handlers
+ipcMain.handle('db:list-views', async (_, id, database) => {
+  try {
+    const views = await db.listViews(id, database);
+    return { success: true, results: views };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('db:get-view-definition', async (_, id, database, viewName) => {
+  try {
+    const definition = await db.getViewDefinition(id, database, viewName);
+    return { success: true, results: definition };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('db:drop-view', async (_, id, database, viewName) => {
+  try {
+    await db.dropView(id, database, viewName);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('db:create-view', async (_, id, database, viewName, selectStatement) => {
+  try {
+    await db.createView(id, database, viewName, selectStatement);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Table columns handler (for foreign key column selection)
+ipcMain.handle('db:get-table-columns', async (_, id, database, table) => {
+  try {
+    const columns = await db.getTableColumns(id, database, table);
+    return { success: true, results: columns };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Triggers handlers
+ipcMain.handle('db:get-triggers', async (_, id, database, table) => {
+  try {
+    const triggers = await db.getTriggers(id, database, table);
+    return { success: true, results: triggers };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('db:create-trigger', async (_, id, database, triggerSql) => {
+  try {
+    await db.createTrigger(id, database, triggerSql);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('db:drop-trigger', async (_, id, database, triggerName) => {
+  try {
+    await db.dropTrigger(id, database, triggerName);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Foreign keys with rules handler
+ipcMain.handle('db:get-foreign-keys-with-rules', async (_, id, database, table) => {
+  try {
+    const fks = await db.getForeignKeysWithRules(id, database, table);
+    return { success: true, results: fks };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
