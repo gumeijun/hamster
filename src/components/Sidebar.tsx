@@ -14,7 +14,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { ConnectionModal } from './ConnectionModal';
 import { ConnectionConfig } from '../types';
-import { Database, Table, Plus, Server, ChevronRight, ChevronDown, Trash2, Edit, X, Download, Settings, Upload, FileText, Trash, RefreshCw } from 'lucide-react';
+import { Database, Table, Plus, Server, ChevronRight, ChevronDown, Trash2, Edit, X, Download, Settings, Upload, FileText, Trash, RefreshCw, Power } from 'lucide-react';
 import { EditDatabaseModal } from './EditDatabaseModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { RenameTableModal } from './RenameTableModal';
@@ -25,9 +25,10 @@ interface SidebarProps {
   onSelectDatabase: (connectionId: string, database: string) => void;
   onCloseDatabase: (connectionId: string, database: string) => void;
   onSelectViews: (connectionId: string, database: string) => void;
+  onCloseConnection: (connectionId: string) => void;
 }
 
-export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onCloseDatabase, onSelectViews }: SidebarProps) {
+export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onCloseDatabase, onSelectViews, onCloseConnection }: SidebarProps) {
   const { savedConnections, addConnection, removeConnection, updateConnection, activeConnectionId, activeConnectionConfigId, setActiveConnection } = useConnectionStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ConnectionConfig | undefined>(undefined);
@@ -634,8 +635,16 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                       <div
                         className="flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer"
                         onClick={() => {
-                           if (activeConnectionId) {
+                           if (activeConnectionId && activeConnectionConfigId === conn.id) {
                               onSelectDatabase(activeConnectionId, db);
+                           } else {
+                              // Optional: Auto-activate or prompt?
+                              // For now, let's just behave like double click (toggle) or do nothing?
+                              // If we do nothing, it looks broken.
+                              // Let's prompt.
+                              // alert("Please activate this connection first");
+                              // actually, better to just toggle connection?
+                              toggleConnection(conn);
                            }
                         }}
                         onDoubleClick={() => toggleDatabase(conn.id, db)}
@@ -656,8 +665,10 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                            {/* Tables category */}
                            <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer hover:bg-gray-200 rounded" onClick={() => {
                              // When clicking Tables category, show database overview (all tables)
-                             if (activeConnectionId) {
+                             if (activeConnectionId && activeConnectionConfigId === conn.id) {
                                onSelectDatabase(activeConnectionId, db);
+                             } else if (activeConnectionConfigId !== conn.id) {
+                                toggleConnection(conn);
                              }
                            }}>
                              <div
@@ -704,7 +715,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                            {/* Views category */}
                            <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1 hover:bg-gray-200 rounded" onClick={() => {
                              // When clicked, open Views list
-                             if (activeConnectionId) {
+                             if (activeConnectionId && activeConnectionConfigId === conn.id) {
                                onSelectViews(activeConnectionId, db);
                              }
                              // Also toggle category expand/collapse state
@@ -814,6 +825,17 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
           className="fixed bg-white shadow-lg border rounded py-1 z-50 min-w-[180px]"
           style={{ top: connectionContextMenu.y, left: connectionContextMenu.x }}
         >
+          {activeConnectionConfigId === connectionContextMenu.configId && (
+            <>
+              <button 
+                className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                onClick={handleCloseConnectionAction}
+              >
+                <Power size={14} /> Close Connection
+              </button>
+              <div className="border-b my-1"></div>
+            </>
+          )}
           <button 
             className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
             onClick={handleCreateDatabase}
