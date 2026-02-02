@@ -1,3 +1,14 @@
+/**
+ * Connection Modal Component
+ * 
+ * Modal dialog for creating and editing database connections.
+ * Features:
+ * - Form fields for connection details (name, host, port, user, password)
+ * - Support for both create and edit modes
+ * - Form validation
+ * - Generates unique ID for new connections
+ */
+
 import React, { useState } from 'react';
 import { ConnectionConfig } from '../types';
 

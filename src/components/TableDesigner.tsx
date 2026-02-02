@@ -1099,6 +1099,7 @@ export function TableDesigner({ connectionId, database, table, onClose }: TableD
                       <th className="border p-2 text-left w-20">Length</th>
                       <th className="border p-2 text-center w-20">Not Null</th>
                       <th className="border p-2 text-center w-10">Key</th>
+                      <th className="border p-2 text-left w-32">Comment</th>
                       <th className="border p-2 text-center w-10">Op</th>
                     </tr>
                   </thead>
@@ -1142,6 +1143,11 @@ export function TableDesigner({ connectionId, database, table, onClose }: TableD
                         </td>
                         <td className="border p-1 text-center">
                            {col.Key === 'PRI' && <Key size={12} className="text-yellow-600 inline" />}
+                        </td>
+                        <td className="border p-1">
+                          <div className="px-1 py-0.5 text-gray-600 text-xs truncate" title={col.Comment || ''}>
+                            {col.Comment || <span className="text-gray-400 italic">-</span>}
+                          </div>
                         </td>
                         <td className="border p-1 text-center">
                           <button onClick={(e) => { e.stopPropagation(); handleDeleteColumn(i); }} className="text-red-500 hover:text-red-700">

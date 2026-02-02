@@ -1,9 +1,22 @@
+/**
+ * Sidebar Navigation Component
+ * 
+ * The main navigation panel displaying database connections and structure.
+ * Features:
+ * - Connection management (add, edit, delete, connect)
+ * - Database tree view with expandable nodes
+ * - Categories: Tables, Views, Functions, Events, Queries, Backups
+ * - Context menus for databases and tables
+ * - Operations: create database, import/export, rename, truncate, delete
+ */
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { ConnectionModal } from './ConnectionModal';
 import { ConnectionConfig } from '../types';
-import { Database, Table, Plus, Server, ChevronRight, ChevronDown, Trash2, Edit, X, Download, Settings, Upload, FileText, Trash } from 'lucide-react';
+import { Database, Table, Plus, Server, ChevronRight, ChevronDown, Trash2, Edit, X, Download, Settings, Upload, FileText, Trash, RefreshCw } from 'lucide-react';
 import { EditDatabaseModal } from './EditDatabaseModal';
+import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { RenameTableModal } from './RenameTableModal';
 
 interface SidebarProps {
@@ -11,13 +24,15 @@ interface SidebarProps {
   onDesignTable: (connectionId: string, database: string, table: string) => void;
   onSelectDatabase: (connectionId: string, database: string) => void;
   onCloseDatabase: (connectionId: string, database: string) => void;
+  onSelectViews: (connectionId: string, database: string) => void;
 }
 
-export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onCloseDatabase }: SidebarProps) {
+export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onCloseDatabase, onSelectViews }: SidebarProps) {
   const { savedConnections, addConnection, removeConnection, updateConnection, activeConnectionId, activeConnectionConfigId, setActiveConnection } = useConnectionStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ConnectionConfig | undefined>(undefined);
   const [isEditDbModalOpen, setIsEditDbModalOpen] = useState(false);
+  const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{database: string, table: string} | null>(null);
   
@@ -61,14 +76,41 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
+  // Listen for table name changes from TableDesigner
+  useEffect(() => {
+    const handleTableNameChanged = (e: CustomEvent) => {
+      const { oldName, newName, database } = e.detail;
+      if (!activeConnectionConfigId) return;
+
+      // Find the table in the local state and update it
+      const key = `${activeConnectionConfigId}:${database}`;
+      setTables(prev => {
+        const currentTables = prev[key] || [];
+        return {
+          ...prev,
+          [key]: currentTables.map(t => t === oldName ? newName : t)
+        };
+      });
+    };
+
+    window.addEventListener('table-name-changed', handleTableNameChanged as EventListener);
+    return () => {
+      window.removeEventListener('table-name-changed', handleTableNameChanged as EventListener);
+    };
+  }, [activeConnectionConfigId]);
+
   // Expanded states
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
   const [openDatabases, setOpenDatabases] = useState<Set<string>>(new Set());
-  
+
+  // Collapsed categories states
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+
   // Data caches
   const [databases, setDatabases] = useState<Record<string, string[]>>({});
   const [tables, setTables] = useState<Record<string, string[]>>({});
+  const [views, setViews] = useState<Record<string, string[]>>({});
   const [selectedTable, setSelectedTable] = useState<{configId: string, database: string, table: string} | null>(null);
 
   const handleConnectionContextMenu = (e: React.MouseEvent, configId: string) => {
@@ -79,6 +121,43 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
       y: e.clientY,
       configId
     });
+  };
+
+  const handleCloseConnectionAction = async () => {
+    if (connectionContextMenu) {
+      const configId = connectionContextMenu.configId;
+      
+      // Collapse
+      const newSet = new Set(expandedConnections);
+      newSet.delete(configId);
+      setExpandedConnections(newSet);
+      
+      // If active, close tabs and disconnect
+      if (activeConnectionConfigId === configId && activeConnectionId) {
+         onCloseConnection(activeConnectionId);
+         
+         try {
+             await window.ipcRenderer.invoke('db:close', activeConnectionId);
+         } catch (e) {
+             console.error("Failed to close connection", e);
+         }
+         
+         setActiveConnection(null, null);
+      }
+      
+      setConnectionContextMenu(null);
+    }
+  };
+
+  const handleCreateDatabase = () => {
+    if (connectionContextMenu) {
+      if (!activeConnectionId || activeConnectionConfigId !== connectionContextMenu.configId) {
+         alert("Please connect to this server first");
+         return;
+      }
+      setIsCreateDbModalOpen(true);
+      setConnectionContextMenu(null);
+    }
   };
 
   const handleEditConnection = () => {
@@ -322,24 +401,61 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
     }
   };
 
+  const handleRefreshDatabase = async () => {
+    if (dbContextMenu) {
+      if (!activeConnectionId) {
+        alert("Please connect first");
+        return;
+      }
+
+      if (activeConnectionConfigId !== dbContextMenu.connectionId) {
+        alert("Please activate this connection first (Click on connection name)");
+        return;
+      }
+
+      try {
+        const key = `${dbContextMenu.connectionId}:${dbContextMenu.database}`;
+        
+        // Refresh tables and views list in parallel
+        const [tablesRes, viewsRes] = await Promise.all([
+          window.ipcRenderer.invoke('db:list-tables', activeConnectionId, dbContextMenu.database),
+          window.ipcRenderer.invoke('db:list-views', activeConnectionId, dbContextMenu.database)
+        ]);
+
+        if (tablesRes.success) {
+          setTables(prev => ({ ...prev, [key]: tablesRes.results }));
+        } else {
+          alert('Failed to refresh tables: ' + tablesRes.error);
+        }
+
+        if (viewsRes.success) {
+          setViews(prev => ({ ...prev, [key]: viewsRes.results }));
+        }
+      } catch (err: any) {
+        alert("Error: " + err.message);
+      }
+      setDbContextMenu(null);
+    }
+  };
+
   const handleImportSql = async () => {
     if (dbContextMenu) {
-       // We need the runtime connection ID. 
+       // We need the runtime connection ID.
        // dbContextMenu.connectionId is the CONFIG ID.
        // We assume activeConnectionId matches because context menu is only available if we right clicked it.
        // Wait, `handleDbContextMenu` is passed `conn.id` which IS Config ID.
        // But to execute SQL we need Runtime ID.
        // The database is "Open" if `expandedDatabases` has it? No, `expandedConnections` has conn.
-       
+
        // If the user right clicks a database, they might not have it "active" in terms of `activeConnectionId` global state if we allowed multi-connection.
        // But in our current simple logic, we rely on `activeConnectionId`.
        // Let's check if we are connected.
-       
+
        if (!activeConnectionId) {
          alert("Please connect first");
          return;
        }
-       
+
        // Ideally we should verify `activeConnectionConfigId === dbContextMenu.connectionId`.
        if (activeConnectionConfigId !== dbContextMenu.connectionId) {
           // This happens if we right click a DB in a different connection than the active one.
@@ -458,26 +574,36 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
        return;
     }
 
-    const res = await window.ipcRenderer.invoke('db:list-tables', activeConnectionId, dbName);
-    if (res.success) {
-      setTables(prev => ({ ...prev, [key]: res.results }));
-      const newSet = new Set(expandedDatabases);
-      newSet.add(key);
-      setExpandedDatabases(newSet);
-      
-      const newOpenSet = new Set(openDatabases);
-      newOpenSet.add(key);
-      setOpenDatabases(newOpenSet);
+    const [tablesRes, viewsRes] = await Promise.all([
+      window.ipcRenderer.invoke('db:list-tables', activeConnectionId, dbName),
+      window.ipcRenderer.invoke('db:list-views', activeConnectionId, dbName)
+    ]);
+
+    if (tablesRes.success) {
+      setTables(prev => ({ ...prev, [key]: tablesRes.results }));
     } else {
-      alert('Failed to list tables: ' + res.error);
+      alert('Failed to list tables: ' + tablesRes.error);
+      return;
     }
+
+    if (viewsRes.success) {
+      setViews(prev => ({ ...prev, [key]: viewsRes.results }));
+    }
+
+    const newSet = new Set(expandedDatabases);
+    newSet.add(key);
+    setExpandedDatabases(newSet);
+    
+    const newOpenSet = new Set(openDatabases);
+    newOpenSet.add(key);
+    setOpenDatabases(newOpenSet);
   };
 
   return (
     <div className="h-full flex flex-col bg-gray-50 border-r">
       <div className="p-2 border-b flex justify-between items-center bg-white">
         <span className="text-sm font-semibold text-gray-600">Connections</span>
-        <button 
+        <button
           onClick={() => setIsModalOpen(true)}
           className="p-1 hover:bg-gray-100 rounded text-gray-600"
           title="New Connection"
@@ -485,11 +611,11 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
           <Plus size={16} />
         </button>
       </div>
-      
+
       <div className="flex-1 overflow-auto p-2">
         {savedConnections.map(conn => (
           <div key={conn.id} className="mb-1">
-            <div 
+            <div
               className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer ${activeConnectionConfigId === conn.id ? 'bg-blue-50' : ''}`}
               onClick={() => toggleConnection(conn)}
               onContextMenu={(e) => handleConnectionContextMenu(e, conn.id)}
@@ -505,7 +631,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                   const dbKey = `${conn.id}:${db}`;
                   return (
                     <div key={db}>
-                      <div 
+                      <div
                         className="flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer"
                         onClick={() => {
                            if (activeConnectionId) {
@@ -515,7 +641,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                         onDoubleClick={() => toggleDatabase(conn.id, db)}
                         onContextMenu={(e) => handleDbContextMenu(e, conn.id, db)}
                       >
-                         <div 
+                         <div
                            onClick={(e) => { e.stopPropagation(); toggleDatabase(conn.id, db); }}
                            className="hover:bg-gray-300 rounded p-0.5"
                          >
@@ -524,28 +650,145 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                          <Database size={14} className={openDatabases.has(dbKey) ? "text-green-600" : "text-gray-400"} />
                          <span className={`text-sm truncate select-none ${openDatabases.has(dbKey) ? "text-black" : "text-gray-500"}`}>{db}</span>
                       </div>
-                      
+
                       {expandedDatabases.has(dbKey) && tables[dbKey] && (
                         <div className="ml-4 border-l border-gray-300 pl-1 mt-1">
-                           {tables[dbKey].map(table => {
-                             const isSelected = selectedTable?.configId === conn.id && selectedTable?.database === db && selectedTable?.table === table;
-                             return (
-                               <div 
-                                key={table} 
-                                className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4 ${isSelected ? 'bg-blue-100 text-blue-700' : ''}`}
-                                onClick={() => setSelectedTable({ configId: conn.id, database: db, table })}
-                                onDoubleClick={() => {
-                                  if (activeConnectionId && activeConnectionConfigId === conn.id) {
-                                    onSelectTable(activeConnectionId, db, table);
-                                  }
-                                }}
-                                onContextMenu={(e) => handleContextMenu(e, activeConnectionId!, db, table)}
-                              >
-                                <Table size={14} className="text-blue-500" />
-                                <span className="text-sm truncate select-none">{table}</span>
-                              </div>
-                             );
-                           })}
+                           {/* Tables category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer hover:bg-gray-200 rounded" onClick={() => {
+                             // When clicking Tables category, show database overview (all tables)
+                             if (activeConnectionId) {
+                               onSelectDatabase(activeConnectionId, db);
+                             }
+                           }}>
+                             <div
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 // Only toggle expand/collapse when clicking the arrow
+                                 const key = `${dbKey}:tables`;
+                                 setCollapsedCategories(prev => ({
+                                   ...prev,
+                                   [key]: !prev[key]
+                                 }));
+                               }}
+                               className="hover:bg-gray-300 rounded p-0.5"
+                             >
+                               {collapsedCategories[`${dbKey}:tables`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             </div>
+                             <Table size={12} />
+                             <span>Tables ({tables[dbKey].length})</span>
+                           </div>
+                           {!collapsedCategories[`${dbKey}:tables`] && (
+                             <div className="ml-4">
+                               {tables[dbKey].map(table => {
+                                 const isSelected = selectedTable?.configId === conn.id && selectedTable?.database === db && selectedTable?.table === table;
+                                 return (
+                                   <div
+                                    key={table}
+                                    className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4 ${isSelected ? 'bg-blue-100 text-blue-700' : ''}`}
+                                    onClick={() => setSelectedTable({ configId: conn.id, database: db, table })}
+                                    onDoubleClick={() => {
+                                      if (activeConnectionId && activeConnectionConfigId === conn.id) {
+                                        onSelectTable(activeConnectionId, db, table);
+                                      }
+                                    }}
+                                    onContextMenu={(e) => handleContextMenu(e, activeConnectionId!, db, table)}
+                                  >
+                                    <Table size={14} className="text-blue-500" />
+                                    <span className="text-sm truncate select-none">{table}</span>
+                                  </div>
+                                 );
+                               })}
+                             </div>
+                           )}
+
+                           {/* Views category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1 hover:bg-gray-200 rounded" onClick={() => {
+                             // When clicked, open Views list
+                             if (activeConnectionId) {
+                               onSelectViews(activeConnectionId, db);
+                             }
+                             // Also toggle category expand/collapse state
+                             const key = `${dbKey}:views`;
+                             setCollapsedCategories(prev => ({
+                               ...prev,
+                               [key]: !prev[key]
+                             }));
+                           }}>
+                             {collapsedCategories[`${dbKey}:views`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             <FileText size={12} />
+                             <span>Views ({views[dbKey]?.length || 0})</span>
+                           </div>
+                           {/* Expanded views list */}
+                           {!collapsedCategories[`${dbKey}:views`] && views[dbKey] && views[dbKey].length > 0 && (
+                             <div className="ml-4">
+                               {views[dbKey].map(viewName => (
+                                 <div
+                                   key={viewName}
+                                   className="flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4 text-sm"
+                                   onDoubleClick={() => {
+                                     if (activeConnectionId) {
+                                       onSelectViews(activeConnectionId, db);
+                                     }
+                                   }}
+                                 >
+                                   <FileText size={14} className="text-purple-500" />
+                                   <span className="truncate select-none">{viewName}</span>
+                                 </div>
+                               ))}
+                             </div>
+                           )}
+
+                           {/* Functions category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
+                             const key = `${dbKey}:functions`;
+                             setCollapsedCategories(prev => ({
+                               ...prev,
+                               [key]: !prev[key]
+                             }));
+                           }}>
+                             {collapsedCategories[`${dbKey}:functions`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             <Server size={12} />
+                             <span>Functions (0)</span>
+                           </div>
+
+                           {/* Events category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
+                             const key = `${dbKey}:events`;
+                             setCollapsedCategories(prev => ({
+                               ...prev,
+                               [key]: !prev[key]
+                             }));
+                           }}>
+                             {collapsedCategories[`${dbKey}:events`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             <Server size={12} />
+                             <span>Events (0)</span>
+                           </div>
+
+                           {/* Queries category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
+                             const key = `${dbKey}:queries`;
+                             setCollapsedCategories(prev => ({
+                               ...prev,
+                               [key]: !prev[key]
+                             }));
+                           }}>
+                             {collapsedCategories[`${dbKey}:queries`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             <Server size={12} />
+                             <span>Queries (0)</span>
+                           </div>
+
+                           {/* Backups category */}
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
+                             const key = `${dbKey}:backups`;
+                             setCollapsedCategories(prev => ({
+                               ...prev,
+                               [key]: !prev[key]
+                             }));
+                           }}>
+                             {collapsedCategories[`${dbKey}:backups`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                             <Server size={12} />
+                             <span>Backups (0)</span>
+                           </div>
                        </div>
                      )}
                    </div>
@@ -571,6 +814,13 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
           className="fixed bg-white shadow-lg border rounded py-1 z-50 min-w-[180px]"
           style={{ top: connectionContextMenu.y, left: connectionContextMenu.x }}
         >
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+            onClick={handleCreateDatabase}
+          >
+            <Database size={14} /> Create Database
+          </button>
+          <div className="border-b my-1"></div>
           <button 
             className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
             onClick={handleEditConnection}
@@ -631,16 +881,22 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
 
       {/* Database Context Menu */}
       {dbContextMenu && (
-        <div 
+        <div
           ref={contextMenuRef}
           className="fixed bg-white shadow-lg border rounded py-1 z-50 min-w-[180px]"
           style={{ top: dbContextMenu.y, left: dbContextMenu.x }}
         >
-          <button 
+          <button
              className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
              onClick={handleCloseDatabase}
            >
              <X size={14} /> Close Database
+           </button>
+           <button
+             className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+             onClick={handleRefreshDatabase}
+           >
+             <RefreshCw size={14} /> Refresh
            </button>
            <div className="border-b my-1"></div>
            
@@ -701,6 +957,23 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
           onClose={() => setIsRenameModalOpen(false)}
           onRename={executeRename}
           currentName={renameTarget.table}
+        />
+      )}
+
+      {isCreateDbModalOpen && activeConnectionId && (
+        <CreateDatabaseModal 
+          isOpen={isCreateDbModalOpen}
+          onClose={() => setIsCreateDbModalOpen(false)}
+          connectionId={activeConnectionId}
+          onSuccess={async () => {
+             // Refresh database list
+             if (activeConnectionId && activeConnectionConfigId) {
+                const dbRes = await window.ipcRenderer.invoke('db:list-databases', activeConnectionId);
+                if (dbRes.success) {
+                  setDatabases(prev => ({ ...prev, [activeConnectionConfigId]: dbRes.results }));
+                }
+             }
+          }}
         />
       )}
     </div>

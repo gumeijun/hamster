@@ -1,3 +1,12 @@
+/**
+ * Electron Preload Script
+ * 
+ * This script runs in the renderer process before the web page loads.
+ * It safely exposes IPC communication methods to the renderer process
+ * using contextBridge, enabling secure communication between the
+ * renderer and main processes.
+ */
+
 import { contextBridge, ipcRenderer } from 'electron';
 
 // --------- Expose some API to the Renderer process ---------

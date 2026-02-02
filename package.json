@@ -1,6 +1,6 @@
 {
   "name": "hamster",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
   "license": "ISC",
   "description": "MySQL Database Manager",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "@monaco-editor/react": "^4.7.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
@@ -49,7 +50,10 @@
     "mac": {
       "target": {
         "target": "dmg",
-        "arch": ["arm64", "x64"]
+        "arch": [
+          "arm64",
+          "x64"
+        ]
       },
       "icon": "public/logo.png"
     },

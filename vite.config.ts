@@ -1,3 +1,13 @@
+/**
+ * Vite Configuration
+ * 
+ * Build configuration for the Electron + React application.
+ * Configures:
+ * - React plugin for JSX/TSX support
+ * - Electron plugin for main and preload script compilation
+ * - Path aliases for cleaner imports
+ */
+
 import { defineConfig } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'

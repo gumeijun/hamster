@@ -1,3 +1,13 @@
+/**
+ * Connection Store
+ * 
+ * Zustand store for managing database connections state.
+ * Features:
+ * - Persist saved connections to localStorage
+ * - Track active connection (runtime ID and config ID)
+ * - CRUD operations for connection configurations
+ */
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ConnectionConfig } from '../types';

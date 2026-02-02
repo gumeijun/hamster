@@ -1,3 +1,15 @@
+/**
+ * Query Editor Component
+ * 
+ * SQL query editor with Monaco editor integration.
+ * Features:
+ * - Syntax-highlighted SQL editing with Monaco
+ * - Execute queries and display results
+ * - Supports SELECT queries and DDL/DML statements
+ * - Error handling and display
+ * - Uses active database context
+ */
+
 import React, { useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play } from 'lucide-react';

@@ -1,3 +1,14 @@
+/**
+ * Rename Table Modal Component
+ * 
+ * Simple modal dialog for renaming a database table.
+ * Features:
+ * - Shows current table name
+ * - Input field for new name
+ * - Validates that new name is different from current
+ * - Async rename operation with loading state
+ */
+
 import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 

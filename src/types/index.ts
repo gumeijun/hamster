@@ -1,3 +1,13 @@
+/**
+ * Type Definitions
+ * 
+ * This file contains all TypeScript type definitions and interfaces used
+ * throughout the application, including:
+ * - ConnectionConfig: Database connection configuration
+ * - DBResult: Database operation result wrapper
+ * - Global Window interface extension for IPC communication
+ */
+
 export interface ConnectionConfig {
   id: string;
   name: string;

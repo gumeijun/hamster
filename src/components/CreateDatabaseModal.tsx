@@ -1,27 +1,28 @@
 /**
- * Edit Database Modal Component
+ * Create Database Modal Component
  * 
- * Modal dialog for modifying database properties.
+ * Modal dialog for creating a new database.
  * Features:
- * - Load current database charset and collation
+ * - Database name input
  * - Character set selection (fetched from server)
  * - Collation selection (filtered by charset)
- * - Alters database with new options
+ * - Creates database with specified options
  */
 
 import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 
-interface EditDatabaseModalProps {
+interface CreateDatabaseModalProps {
   isOpen: boolean;
   onClose: () => void;
   connectionId: string;
-  database: string;
+  onSuccess: () => void;
 }
 
-export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: EditDatabaseModalProps) {
-  const [charset, setCharset] = useState('');
-  const [collation, setCollation] = useState('');
+export function CreateDatabaseModal({ isOpen, onClose, connectionId, onSuccess }: CreateDatabaseModalProps) {
+  const [dbName, setDbName] = useState('');
+  const [charset, setCharset] = useState('utf8mb4');
+  const [collation, setCollation] = useState('utf8mb4_general_ci');
   const [availableCharsets, setAvailableCharsets] = useState<any[]>([]);
   const [availableCollations, setAvailableCollations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,20 +30,14 @@ export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: E
 
   useEffect(() => {
     if (isOpen) {
-      fetchInfo();
+      setDbName('');
+      fetchOptions();
     }
   }, [isOpen]);
 
-  const fetchInfo = async () => {
+  const fetchOptions = async () => {
     setLoading(true);
     try {
-      // Fetch current info
-      const infoRes = await window.ipcRenderer.invoke('db:get-database-info', connectionId, database);
-      if (infoRes.success) {
-        setCharset(infoRes.results.DEFAULT_CHARACTER_SET_NAME);
-        setCollation(infoRes.results.DEFAULT_COLLATION_NAME);
-      }
-
       // Fetch options
       const charsetsRes = await window.ipcRenderer.invoke('db:get-charsets', connectionId);
       if (charsetsRes.success) {
@@ -54,20 +49,26 @@ export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: E
         setAvailableCollations(collationsRes.results);
       }
     } catch (err) {
-      console.error("Failed to fetch db info", err);
+      console.error("Failed to fetch db options", err);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSave = async () => {
+    if (!dbName.trim()) {
+      alert("Database name is required");
+      return;
+    }
+
     setSaving(true);
     try {
-      const res = await window.ipcRenderer.invoke('db:alter-database', connectionId, database, charset, collation);
+      const res = await window.ipcRenderer.invoke('db:create-database', connectionId, dbName, charset, collation);
       if (res.success) {
+        onSuccess();
         onClose();
       } else {
-        alert("Failed to update database: " + res.error);
+        alert("Failed to create database: " + res.error);
       }
     } catch (err: any) {
       alert("Error: " + err.message);
@@ -84,7 +85,7 @@ export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: E
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-[500px] flex flex-col">
         <div className="p-4 border-b flex justify-between items-center">
-          <h3 className="font-semibold text-lg">Edit Database: {database}</h3>
+          <h3 className="font-semibold text-lg">Create New Database</h3>
           <button onClick={onClose} className="hover:bg-gray-100 p-1 rounded">
             <X size={18} />
           </button>
@@ -92,9 +93,21 @@ export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: E
 
         <div className="p-6 flex flex-col gap-4">
           {loading ? (
-            <div className="text-gray-500">Loading...</div>
+            <div className="text-gray-500">Loading options...</div>
           ) : (
             <>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-700">Database Name</label>
+                <input 
+                  type="text"
+                  className="border rounded p-2 text-sm"
+                  value={dbName}
+                  onChange={(e) => setDbName(e.target.value)}
+                  placeholder="Enter database name"
+                  autoFocus
+                />
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-gray-700">Character Set</label>
                 <select 
@@ -145,7 +158,7 @@ export function EditDatabaseModal({ isOpen, onClose, connectionId, database }: E
             disabled={loading || saving}
             className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm flex items-center gap-1 disabled:opacity-50"
           >
-            <Save size={14} /> {saving ? 'Saving...' : 'Save'}
+            <Save size={14} /> {saving ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>

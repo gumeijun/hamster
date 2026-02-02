@@ -1,5 +1,18 @@
+/**
+ * Data Viewer Component
+ * 
+ * A full-featured data grid for viewing and editing table data.
+ * Features:
+ * - Paginated data display with configurable page size
+ * - Inline cell editing with save/cancel
+ * - Add new rows
+ * - Delete selected rows
+ * - Advanced filtering with multiple operators
+ * - Column sorting
+ */
+
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Save, X, Plus, Trash2, Filter } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, X, Plus, Trash2, Filter, Copy } from 'lucide-react';
 
 interface DataViewerProps {
   connectionId: string;
@@ -75,6 +88,18 @@ export function DataViewer({ connectionId, database, table, refreshKey }: DataVi
             minute: '2-digit',
             second: '2-digit',
             hour12: false
+          }).replace(/\//g, '-');
+       }
+    }
+    // 处理 date 类型，使用北京时间
+    if (typeLower === 'date') {
+       const d = new Date(val);
+       if (!isNaN(d.getTime())) {
+          return d.toLocaleDateString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
           }).replace(/\//g, '-');
        }
     }
@@ -237,6 +262,92 @@ export function DataViewer({ connectionId, database, table, refreshKey }: DataVi
     }
   };
 
+  // 格式化 SQL 值
+  const formatSqlValue = (value: any, colType: string): string => {
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+    
+    const typeLower = colType.toLowerCase();
+    
+    // 数字类型不需要引号
+    if (['int', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal'].some(t => typeLower.includes(t))) {
+      return String(value);
+    }
+    
+    // 布尔类型
+    if (typeLower.includes('bit') || typeLower.includes('boolean')) {
+      return value ? '1' : '0';
+    }
+    
+    // 日期时间类型
+    if (typeLower.includes('datetime') || typeLower.includes('timestamp')) {
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) {
+        // 格式化为 MySQL datetime 格式
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const seconds = String(d.getSeconds()).padStart(2, '0');
+        return `'${year}-${month}-${day} ${hours}:${minutes}:${seconds}'`;
+      }
+    }
+    
+    if (typeLower === 'date') {
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `'${year}-${month}-${day}'`;
+      }
+    }
+    
+    // 字符串类型 - 转义单引号
+    const strVal = String(value).replace(/'/g, "''");
+    return `'${strVal}'`;
+  };
+
+  // 生成 INSERT 语句并复制到剪贴板
+  const handleCopyAsInsert = async () => {
+    if (selectedKeys.size === 0) return;
+    
+    const pkCol = columns.find((c: any) => c.Key === 'PRI');
+    if (!pkCol) {
+      alert('无法生成 INSERT 语句：未找到主键');
+      return;
+    }
+    
+    // 获取选中的行数据
+    const selectedRows = data.filter(row => selectedKeys.has(row[pkCol.Field]));
+    if (selectedRows.length === 0) return;
+    
+    // 获取列名列表
+    const columnNames = Object.keys(selectedRows[0]);
+    const quotedColumnNames = columnNames.map(col => `\`${col}\``).join(', ');
+    
+    // 生成每行的 VALUES
+    const insertStatements = selectedRows.map(row => {
+      const values = columnNames.map(colName => {
+        const col = columns.find(c => c.Field === colName);
+        const colType = col?.Type || 'varchar';
+        return formatSqlValue(row[colName], colType);
+      }).join(', ');
+      
+      return `INSERT INTO \`${table}\` (${quotedColumnNames}) VALUES (${values});`;
+    }).join('\n');
+    
+    try {
+      await navigator.clipboard.writeText(insertStatements);
+      // 可以添加一个简短的提示
+      alert(`已复制 ${selectedRows.length} 条 INSERT 语句到剪贴板`);
+    } catch (err: any) {
+      alert('复制失败: ' + err.message);
+    }
+  };
+
   const handleSaveEdit = async () => {
     if (!editingRow) return;
 
@@ -329,6 +440,13 @@ export function DataViewer({ connectionId, database, table, refreshKey }: DataVi
                 className="p-1 px-2 bg-red-600 text-white rounded text-xs hover:bg-red-700 flex items-center gap-1 disabled:opacity-50 disabled:bg-gray-400"
               >
                 <Trash2 size={14} /> Delete Selected ({selectedKeys.size})
+              </button>
+              <button 
+                onClick={handleCopyAsInsert}
+                disabled={selectedKeys.size === 0}
+                className="p-1 px-2 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 flex items-center gap-1 disabled:opacity-50 disabled:bg-gray-400"
+              >
+                <Copy size={14} /> Copy as INSERT ({selectedKeys.size})
               </button>
               <div className="h-4 border-l mx-2"></div>
               <button
