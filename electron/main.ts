@@ -379,11 +379,38 @@ ipcMain.handle('db:drop-trigger', async (_, id, database, triggerName) => {
 // Foreign keys with rules handler
 ipcMain.handle('db:get-foreign-keys-with-rules', async (_, id, database, table) => {
   try {
-    const fks = await db.getForeignKeysWithRules(id, database, table);
-    return { success: true, results: fks };
+    const keys = await db.getForeignKeysWithRules(id, database, table);
+    return { success: true, results: keys };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle('db:list-events', async (_, id, database) => {
+    try {
+        const events = await db.listEvents(id, database);
+        return { success: true, results: events };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('db:toggle-event-status', async (_, id, database, eventName, enable) => {
+    try {
+        await db.toggleEventStatus(id, database, eventName, enable);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('db:drop-event', async (_, id, database, eventName) => {
+    try {
+        await db.dropEvent(id, database, eventName);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common

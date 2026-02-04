@@ -114,6 +114,78 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
   const [views, setViews] = useState<Record<string, string[]>>({});
   const [selectedTable, setSelectedTable] = useState<{configId: string, database: string, table: string} | null>(null);
 
+  // Events state
+  const [events, setEvents] = useState<Record<string, any[]>>({});
+
+  // Event Context Menu State
+  const [eventContextMenu, setEventContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    connectionId: string;
+    database: string;
+    eventName: string;
+    status: string;
+  } | null>(null);
+
+  const handleEventContextMenu = (e: React.MouseEvent, connectionId: string, database: string, eventName: string, status: string) => {
+    e.preventDefault();
+    setEventContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      connectionId,
+      database,
+      eventName,
+      status
+    });
+  };
+
+  const handleToggleEventStatus = async () => {
+    if (eventContextMenu && activeConnectionId) {
+       const enable = eventContextMenu.status !== 'ENABLED';
+       try {
+         const res = await window.ipcRenderer.invoke('db:toggle-event-status', activeConnectionId, eventContextMenu.database, eventContextMenu.eventName, enable);
+         if (res.success) {
+            // Refresh events
+            // We need to re-fetch events for this db
+            const key = `${eventContextMenu.connectionId}:${eventContextMenu.database}`;
+            const eventsRes = await window.ipcRenderer.invoke('db:list-events', activeConnectionId, eventContextMenu.database);
+            if (eventsRes.success) {
+               setEvents(prev => ({ ...prev, [key]: eventsRes.results }));
+            }
+         } else {
+            alert("Failed to update event: " + res.error);
+         }
+       } catch (err: any) {
+         alert("Error: " + err.message);
+       }
+       setEventContextMenu(null);
+    }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (eventContextMenu && activeConnectionId) {
+       if (!window.confirm(`Are you sure you want to delete event "${eventContextMenu.eventName}"?`)) return;
+       try {
+         const res = await window.ipcRenderer.invoke('db:drop-event', activeConnectionId, eventContextMenu.database, eventContextMenu.eventName);
+         if (res.success) {
+            // Refresh events
+            const key = `${eventContextMenu.connectionId}:${eventContextMenu.database}`;
+            const eventsRes = await window.ipcRenderer.invoke('db:list-events', activeConnectionId, eventContextMenu.database);
+            if (eventsRes.success) {
+               setEvents(prev => ({ ...prev, [key]: eventsRes.results }));
+            }
+         } else {
+            alert("Failed to delete event: " + res.error);
+         }
+       } catch (err: any) {
+         alert("Error: " + err.message);
+       }
+       setEventContextMenu(null);
+    }
+  };
+
   const handleConnectionContextMenu = (e: React.MouseEvent, configId: string) => {
     e.preventDefault();
     setConnectionContextMenu({
@@ -133,6 +205,28 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
       newSet.delete(configId);
       setExpandedConnections(newSet);
       
+      // Close all databases under this connection (remove from expandedDatabases and openDatabases)
+      // Filter out keys starting with `${configId}:`
+      setExpandedDatabases(prev => {
+         const next = new Set(prev);
+         for (const key of prev) {
+             if (key.startsWith(`${configId}:`)) {
+                 next.delete(key);
+             }
+         }
+         return next;
+      });
+
+      setOpenDatabases(prev => {
+         const next = new Set(prev);
+         for (const key of prev) {
+             if (key.startsWith(`${configId}:`)) {
+                 next.delete(key);
+             }
+         }
+         return next;
+      });
+
       // If active, close tabs and disconnect
       if (activeConnectionConfigId === configId && activeConnectionId) {
          onCloseConnection(activeConnectionId);
@@ -635,17 +729,7 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                       <div
                         className="flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer"
                         onClick={() => {
-                           if (activeConnectionId && activeConnectionConfigId === conn.id) {
-                              onSelectDatabase(activeConnectionId, db);
-                           } else {
-                              // Optional: Auto-activate or prompt?
-                              // For now, let's just behave like double click (toggle) or do nothing?
-                              // If we do nothing, it looks broken.
-                              // Let's prompt.
-                              // alert("Please activate this connection first");
-                              // actually, better to just toggle connection?
-                              toggleConnection(conn);
-                           }
+                           // Single click does nothing, use double click to open
                         }}
                         onDoubleClick={() => toggleDatabase(conn.id, db)}
                         onContextMenu={(e) => handleDbContextMenu(e, conn.id, db)}
@@ -763,8 +847,23 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                            </div>
 
                            {/* Events category */}
-                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
+                           <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={async () => {
                              const key = `${dbKey}:events`;
+                             const willExpand = !collapsedCategories[key];
+                             
+                             if (willExpand && (!events[key] || events[key].length === 0)) {
+                                if (activeConnectionId && activeConnectionConfigId === conn.id) {
+                                    try {
+                                        const res = await window.ipcRenderer.invoke('db:list-events', activeConnectionId, db);
+                                        if (res.success) {
+                                            setEvents(prev => ({ ...prev, [key]: res.results }));
+                                        }
+                                    } catch (err) {
+                                        console.error("Failed to fetch events", err);
+                                    }
+                                }
+                             }
+
                              setCollapsedCategories(prev => ({
                                ...prev,
                                [key]: !prev[key]
@@ -772,8 +871,24 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
                            }}>
                              {collapsedCategories[`${dbKey}:events`] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                              <Server size={12} />
-                             <span>Events (0)</span>
+                             <span>Events ({events[`${dbKey}:events`]?.length || 0})</span>
                            </div>
+                           
+                           {/* Expanded events list */}
+                           {!collapsedCategories[`${dbKey}:events`] && events[`${dbKey}:events`] && events[`${dbKey}:events`].length > 0 && (
+                             <div className="ml-4">
+                               {events[`${dbKey}:events`].map((evt: any) => (
+                                 <div
+                                   key={evt.Name}
+                                   className={`flex items-center gap-1 p-1 rounded hover:bg-gray-200 cursor-pointer pl-4 text-sm ${evt.Status === 'DISABLED' ? 'text-gray-400' : ''}`}
+                                   onContextMenu={(e) => handleEventContextMenu(e, activeConnectionId!, db, evt.Name, evt.Status)}
+                                 >
+                                   <Server size={14} className={evt.Status === 'ENABLED' ? "text-green-500" : "text-gray-400"} />
+                                   <span className="truncate select-none">{evt.Name}</span>
+                                 </div>
+                               ))}
+                             </div>
+                           )}
 
                            {/* Queries category */}
                            <div className="flex items-center gap-1 p-1 text-xs text-gray-500 cursor-pointer mt-1" onClick={() => {
@@ -971,6 +1086,30 @@ export function Sidebar({ onSelectTable, onDesignTable, onSelectDatabase, onClos
           connectionId={activeConnectionId!} // Assuming active if context menu is up
           database={dbContextMenu.database}
         />
+      )}
+
+      {/* Event Context Menu */}
+      {eventContextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white shadow-lg border rounded py-1 z-50 min-w-[180px]"
+          style={{ top: eventContextMenu.y, left: eventContextMenu.x }}
+        >
+          <button
+             className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+             onClick={handleToggleEventStatus}
+           >
+             <Power size={14} className={eventContextMenu.status === 'ENABLED' ? "text-red-500" : "text-green-500"} />
+             {eventContextMenu.status === 'ENABLED' ? 'Disable Event' : 'Enable Event'}
+           </button>
+           <div className="border-b my-1"></div>
+           <button
+             className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2 text-red-600"
+             onClick={handleDeleteEvent}
+           >
+             <Trash2 size={14} /> Delete Event
+           </button>
+        </div>
       )}
 
       {renameTarget && isRenameModalOpen && (

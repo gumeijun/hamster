@@ -777,3 +777,29 @@ export async function getForeignKeysWithRules(id: string, database: string, tabl
   `, [database, table]);
   return results;
 }
+
+export async function listEvents(id: string, database: string) {
+  const { results } = await query(id, `SHOW EVENTS FROM \`${database}\``);
+  // results: [{ Db, Name, Definer, Time zone, Type, Execute at, Interval value, Interval field, Status, Originator, character_set_client, collation_connection, Database Collation }]
+  return (results as any[]).map((row: any) => ({
+    name: row.Name,
+    status: row.Status, // 'ENABLED', 'DISABLED', 'SLAVESIDE_DISABLED'
+    type: row.Type, // 'ONE TIME', 'RECURRING'
+    schedule: row.Type === 'RECURRING' ? `EVERY ${row['Interval value']} ${row['Interval field']}` : `AT ${row['Execute at']}`
+  }));
+}
+
+export async function toggleEventStatus(id: string, database: string, eventName: string, enable: boolean) {
+  const connection = connections[id];
+  if (!connection) throw new Error('Connection not found');
+  const action = enable ? 'ENABLE' : 'DISABLE';
+  await connection.query(`ALTER EVENT \`${database}\`.\`${eventName}\` ${action}`);
+  return true;
+}
+
+export async function dropEvent(id: string, database: string, eventName: string) {
+    const connection = connections[id];
+    if (!connection) throw new Error('Connection not found');
+    await connection.query(`DROP EVENT \`${database}\`.\`${eventName}\``);
+    return true;
+}
