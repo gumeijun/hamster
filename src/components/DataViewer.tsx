@@ -413,7 +413,11 @@ export function DataViewer({ connectionId, database, table, refreshKey }: DataVi
   };
 
   const handleInputChange = (field: string, value: string) => {
-     setEditingRow((prev: any) => ({ ...prev, [field]: value }));
+     const col = columns.find((c: any) => c.Field === field);
+     const typeLower = (col?.Type || '').toLowerCase();
+     const isNumeric = ['int', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal'].some(t => typeLower.includes(t));
+     const nextValue = isNumeric && value.trim() === '' ? null : value;
+     setEditingRow((prev: any) => ({ ...prev, [field]: nextValue }));
   };
 
   if (loading && !data.length) return <div className="p-4 text-gray-500">Loading data...</div>;
